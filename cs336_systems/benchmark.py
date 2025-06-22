@@ -8,6 +8,8 @@ from jaxtyping import Float, Bool, Int
 import math
 from torch import nn
 import pandas as pd
+import os
+import time
 
 import cs336_basics.model
 import cs336_basics.nn_utils
@@ -239,6 +241,83 @@ def memory_results():
     return pd.DataFrame.from_records(records)
 
 
+def attention_benchmark():
+    device = "cuda"
+    torch.manual_seed(123)
+    os.makedirs("memory_snapshot_attn", exist_ok=True)
+    stats = []
+    torch.cuda.memory._record_memory_history(max_entries=1000000)
+    fun = torch.compile(annotated_scaled_dot_product_attention)
+    torch._functorch.config.donated_buffer=False
+    for d_head in [16, 32, 64, 128]:
+        for context_length in [
+            256,
+            1024,
+            4096,
+            8192,
+            # 16384,
+        ]:
+            q = torch.rand(8, context_length, d_head, device=device, requires_grad=True)
+            k = torch.rand(8, context_length, d_head, device=device, requires_grad=True)
+            v = torch.rand(8, context_length, d_head, device=device, requires_grad=True)
+
+            record = {
+                "L": context_length,
+                "D": d_head,
+            }
+
+            # test foward
+            # warmup
+            for i in range(5):
+                loss = fun(q, k, v).sum()
+            torch.cuda.synchronize()
+
+            forward_times = []
+            for i in range(100):
+                tic = timeit.default_timer()
+                loss = fun(q, k, v).sum()
+                torch.cuda.synchronize()
+                forward_times.append(timeit.default_timer() - tic)
+            record["forward_time"] = np.mean(forward_times) * 1000
+            forward_mem = torch.cuda.memory.memory_allocated(device)
+            record["forward_mem"] = forward_mem
+
+            # test backward
+            # warmup
+            for i in range(5):
+                loss.backward(retain_graph=True)
+            torch.cuda.synchronize()
+
+            backward_times = []
+            for i in range(100):
+                tic = timeit.default_timer()
+                loss.backward(retain_graph=True)
+                torch.cuda.synchronize()
+                backward_times.append(timeit.default_timer() - tic)
+            record["backward_time"] = np.mean(backward_times) * 1000
+            backward_mem = torch.cuda.memory.memory_allocated(device)
+            record["backward_mem"] = backward_mem - forward_mem
+
+            print(
+                " ".join(
+                    (
+                        f"{k:<10} {v:<10.4f}"
+                        if isinstance(v, float)
+                        else f"{k:<10} {v:<10}"
+                    )
+                    for k, v in record.items()
+                )
+            )
+            stats.append(record)
+
+            # torch.cuda.empty_cache()
+
+    torch.cuda.memory._record_memory_history(enabled=None)
+
+    df = pd.DataFrame.from_records(stats)
+    df.to_csv("attention_stats_compile.csv")
+
+
 def mixed_precision_accumulation():
     s = torch.tensor(0, dtype=torch.float32)
     for i in range(1000):
@@ -301,6 +380,7 @@ def run_autocast_toy_model():
 
 if __name__ == "__main__":
     # uv run nsys profile -o result --python-backtrace=cuda --force-overwrite true python cs336_systems/benchmark.py
-    run_basic_benchmark()
+    # run_basic_benchmark()
+    attention_benchmark()
     # mixed_precision_accumulation()
     # run_autocast_toy_model()
