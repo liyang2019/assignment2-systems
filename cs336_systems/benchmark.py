@@ -10,6 +10,9 @@ from torch import nn
 import pandas as pd
 import os
 import time
+import triton
+import triton.language as tl
+from einops import rearrange
 
 import cs336_basics.model
 import cs336_basics.nn_utils
@@ -248,7 +251,7 @@ def attention_benchmark():
     stats = []
     torch.cuda.memory._record_memory_history(max_entries=1000000)
     fun = torch.compile(annotated_scaled_dot_product_attention)
-    torch._functorch.config.donated_buffer=False
+    torch._functorch.config.donated_buffer = False
     for d_head in [16, 32, 64, 128]:
         for context_length in [
             256,
