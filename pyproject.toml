@@ -16,6 +16,7 @@ dependencies = [
     "tqdm>=4.67.1",
     "wandb>=0.19.7",
     "pandas>=2",
+    "click",
 ]
 
 [tool.setuptools.packages.find]
@@ -34,15 +35,30 @@ log_cli = true
 log_cli_level = "WARNING"
 addopts = "-s"
 
-[tool.ruff]
-line-length = 120
+# [tool.ruff]
+# line-length = 120
 
-[tool.ruff.lint.extend-per-file-ignores]
-# Also ignore `E402` in all `__init__.py` files.
-"__init__.py" = ["E402", "F401", "F403", "E501"]
+# [tool.ruff.lint.extend-per-file-ignores]
+# # Also ignore `E402` in all `__init__.py` files.
+# "__init__.py" = ["E402", "F401", "F403", "E501"]
 
-[tool.ruff.lint]
-extend-select = ["UP"]
-ignore = [
-    "F722"
-]
+# [tool.ruff.lint]
+# extend-select = ["UP"]
+# ignore = [
+#     "F722"
+# ]
+
+[tool.pyright]
+# Basic configuration
+typeCheckingMode = "off"  # Options: "off", "basic", "standard", "strict"
+
+# Disable specific error types
+# reportPrivateImportUsage = false
+# reportOptionalMemberAccess = false
+# reportUnusedVariable = false
+# reportUnusedImport = false
+# reportMissingImports = false
+
+# Alternative: Set specific error types to "warning" instead of "error"
+# reportPrivateImportUsage = "warning"
+# reportOptionalMemberAccess = "warning"
