@@ -1,8 +1,9 @@
+import copy
 import dataclasses
 import datetime
 import os
 import timeit
-from typing import Any
+from typing import Any, Type
 
 import numpy as np
 import torch
@@ -336,6 +337,47 @@ def ddp_bucketed_benchmarking(
         optimizer.step()
         if rank == 0:
             print(f"{iter} total time per step {timeit.default_timer() - tic1}")
+
+
+class ShardedOptimizer(torch.optim.Optimizer):
+    def __init__(
+        self,
+        params,
+        optimizer_cls: Type[torch.optim.Optimizer],
+        **kwargs: Any,
+    ):
+        self.params = [p for p in params if p.requires_grad]
+        super().__init__(self.params, kwargs.get("defaults", {}))
+        self.optimizer = optimizer_cls(self.param_groups, **kwargs)
+
+    def step(self, closure=None, **kwargs):
+        r = dist.get_rank()
+        assert len(self.optimizer.param_groups) == 1
+        sharded_params = self.optimizer.param_groups[0]["params"]
+        assert len(self.params) == len(sharded_params)
+        for p, sp in zip(self.params, sharded_params):
+            # sp.grad = p.grad.new_zeros(sp.shape)
+            # dist.reduce_scatter(sp.grad, list(p.grad.chunk(dist.get_world_size())))
+            # sp.grad.data /= dist.get_world_size()
+            # dist.all_reduce(p.grad.data)
+            sp.grad = p.grad.view(-1).chunk(dist.get_world_size())[r]
+            # sp.grad.data /= dist.get_world_size()
+        self.optimizer.step(closure, **kwargs)
+        for p, sp in zip(self.params, sharded_params):
+            dist.all_gather(list(p.data.view(-1).chunk(dist.get_world_size())), sp.data)
+            p.grad = None
+
+
+    def add_param_group(self, param_group: dict[str, Any]):
+        r = dist.get_rank()
+        sharded_params = []
+        for param in param_group["params"]:
+            if not param.requires_grad:
+                continue
+            sharded_param = param.data.view(-1).chunk(dist.get_world_size())[r].clone()
+            sharded_param.requires_grad_(True)
+            sharded_params.append(sharded_param)
+        super().add_param_group({"params": sharded_params})
 
 
 if __name__ == "__main__":
